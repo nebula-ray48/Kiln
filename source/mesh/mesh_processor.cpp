@@ -109,4 +109,64 @@ std::expected<void, std::string> validate_mesh(const MeshData& mesh) noexcept {
     return {};
 }
 
+std::expected<std::vector<uint8_t>, std::string> pack_to_binary(const ProcessedMesh& mesh) noexcept {
+
+    // 各データが占有するバイト数を計算する
+    const size_t total_vertex_positions_bytes = mesh.positions.size() * sizeof(conduit::Position);
+    const size_t total_attribute_bytes = mesh.attributes.size() * sizeof(conduit::VertexAttribute);
+
+    size_t index_bytes = 0;
+    size_t index_count = 0;
+
+    // 16bitか32bitかを確認し、実際に中身を取り出してバイト数を計算する
+    if (std::holds_alternative<std::vector<uint16_t>>(mesh.indices)) {
+        const auto& indices_16 = std::get<std::vector<uint16_t>>(mesh.indices);
+        index_count = indices_16.size();
+        index_bytes = index_count * sizeof(uint16_t);
+    } else {
+        const auto& indices_32 = std::get<std::vector<uint32_t>>(mesh.indices);
+        index_count = indices_32.size();
+        index_bytes = index_count * sizeof(uint32_t);
+    }
+
+    // 最終的な「ファイル全体のサイズ」を割り出す
+    const size_t total_bytes = sizeof(conduit::MeshHeader) + total_vertex_positions_bytes + total_attribute_bytes + index_bytes;
+
+    // 計算した総サイズの分だけ、空のバッファを作る
+    std::vector<uint8_t> buffer(total_bytes);
+
+    // 目次（MeshHeader）を組み立てる
+    conduit::MeshHeader header{};
+    header.magic = conduit::CONDUIT_MAGIC;
+    header.version = 1;
+    header.vertex_count = static_cast<uint32_t>(mesh.positions.size());
+    header.index_count = static_cast<uint32_t>(index_count);
+
+    // オフセットの計算
+    header.positions_offset = sizeof(conduit::MeshHeader);
+    header.attributes_offset = header.positions_offset + total_vertex_positions_bytes;
+    header.indices_offset = header.attributes_offset + total_attribute_bytes;
+
+    // バッファの指定位置に、データを直接流し込む (std::memcpy)
+    // 1. バッファの先頭に、ヘッダー（40バイト）をコピー
+    std::memcpy(buffer.data(), &header, sizeof(conduit::MeshHeader));
+
+    // 2. positions_offset の位置から、座標データをコピー
+    std::memcpy(buffer.data() + header.positions_offset, mesh.positions.data(), total_vertex_positions_bytes);
+
+    // 3. attributes_offset の位置から、属性データをコピー
+    std::memcpy(buffer.data() + header.attributes_offset, mesh.attributes.data(), total_attribute_bytes);
+
+    // 4. indices_offset の位置から、インデックスデータをコピー
+    if (std::holds_alternative<std::vector<uint16_t>>(mesh.indices)) {
+        const auto& indices_16 = std::get<std::vector<uint16_t>>(mesh.indices);
+        std::memcpy(buffer.data() + header.indices_offset, indices_16.data(), index_bytes);
+    } else {
+        const auto& indices_32 = std::get<std::vector<uint32_t>>(mesh.indices);
+        std::memcpy(buffer.data() + header.indices_offset, indices_32.data(), index_bytes);
+    }
+
+    return buffer;
+}
+
 } // namespace kiln::mesh

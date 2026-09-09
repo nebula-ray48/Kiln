@@ -18,4 +18,6 @@ namespace kiln::mesh {
 
 [[nodiscard]] std::expected<ProcessedMesh, std::string> process_mesh(const MeshData& raw_mesh) noexcept;
 
-}
+[[nodiscard]] std::expected<std::vector<uint8_t>, std::string> pack_to_binary(const ProcessedMesh& mesh) noexcept;
+
+}  // namespace kiln::mesh

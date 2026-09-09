@@ -30,12 +30,15 @@ endif()
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
 include(CompilerWarnings)
 
-add_subdirectory(schema)
 add_subdirectory(source)
 add_subdirectory(standalone)
 
 enable_testing()
 add_subdirectory(tests)
+
+target_include_directories(kiln_core PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../Conduit/include")
+target_include_directories(kiln_main PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../Conduit/include")
+target_include_directories(kiln_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../Conduit/include")
 
 set_project_warnings(kiln_core)
 set_project_warnings(kiln_main)

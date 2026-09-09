@@ -9,26 +9,17 @@
 #include <span>
 #include <cstdint>
 
+#include "conduit/mesh_types.h"
+
 namespace kiln::mesh {
 
-// Vantaエンジンに最適化された位置データ (リスト1)
-struct Position {
-    float x, y, z;
-};
-
-// Vantaエンジンに最適化された属性データ (リスト2)
-struct VertexAttribute {
-    float u, v;
-    float nx, ny, nz;
-};
-
-// ベイカーの処理結果 (出力データ)
 struct ProcessedMesh {
-    std::vector<Position> positions;
-    std::vector<VertexAttribute> attributes;
+    std::vector<conduit::Position> positions;
+    std::vector<conduit::VertexAttribute> attributes;
     std::variant<std::vector<uint16_t>, std::vector<uint32_t>> indices;
 };
 
+// glTFから読み込んだ入力側の生データ
 struct MeshData {
 
     std::vector<std::byte> raw_buffer;
@@ -43,10 +34,9 @@ struct MeshData {
     size_t uvs_float_count = 0;
 
     size_t indices_byte_offset = 0;
-    size_t indices_count = 0; // 今回は uint32_t 固定と仮定
+    size_t indices_count = 0;
     uint32_t indices_component_type = 0;
 
-    // 3. 必要な時だけゼロコピーで窓枠を作る（メソッド化）
     [[nodiscard]] std::span<const float> get_positions() const noexcept {
         if (positions_float_count == 0) return {};
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
@@ -76,7 +66,6 @@ struct MeshData {
     }
 
     [[nodiscard]] std::span<const uint16_t> get_indices_u16() const noexcept {
-        // 5123 は glTF の UNSIGNED_SHORT
         if (indices_count == 0 || indices_component_type != 5123) return {};
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
         const auto* ptr = reinterpret_cast<const uint16_t*>(raw_buffer.data() + indices_byte_offset);
@@ -84,7 +73,6 @@ struct MeshData {
     }
 
     [[nodiscard]] std::span<const uint32_t> get_indices_u32() const noexcept {
-        // 5125 は glTF の UNSIGNED_INT
         if (indices_count == 0 || indices_component_type != 5125) return {};
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
         const auto* ptr = reinterpret_cast<const uint32_t*>(raw_buffer.data() + indices_byte_offset);

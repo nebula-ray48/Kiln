@@ -7,6 +7,7 @@
 #include <expected>
 #include <string>
 
+#include "conduit/mesh_types.h"
 #include "mesh_types.h"
 
 namespace kiln::mesh {

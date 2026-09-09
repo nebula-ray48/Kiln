@@ -36,7 +36,7 @@ int main() {
     auto positions = mesh->positions();
 
     if (positions) {
-        std::cout << "[*] 読み込み成功！頂点数: " << positions->size() << std::endl;
+        std::cout << "[*] 読み込み成功 頂点数: " << positions->size() << std::endl;
 
         for (uint32_t i = 0; i < positions->size(); ++i) {
             auto v = positions->Get(i);

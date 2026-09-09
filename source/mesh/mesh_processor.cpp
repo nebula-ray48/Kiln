@@ -32,14 +32,14 @@ std::expected<ProcessedMesh, std::string> process_mesh(const MeshData& raw_mesh)
     // 2. データをエンジン用の「リスト1」と「リスト2」に詰め替える
     for (size_t i = 0; i < vertex_count; ++i) {
         // リスト1: 位置だけを純度100%で抽出
-        result.positions.push_back(Position{
+        result.positions.push_back(conduit::Position{
             raw_pos[i * 3 + 0],
             raw_pos[i * 3 + 1],
             raw_pos[i * 3 + 2],
         });
 
         // リスト2: 色塗りに必要な情報をまとめる（インターリーブ）
-        VertexAttribute attr{};
+        conduit::VertexAttribute attr{};
         if (not raw_uvs.empty()) {
             attr.u = raw_uvs[i * 2 + 0];
             attr.v = raw_uvs[i * 2 + 1];

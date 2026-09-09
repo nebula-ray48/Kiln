@@ -3,110 +3,86 @@
 // SPDX-License-Identifier: BSD-2-Clause-Patent   //
 //------------------------------------------------//
 
+#define CGLTF_IMPLEMENTATION
+#include <cgltf.h>
+
 #include "format/gltf_parser.h"
-
-#include <nlohmann/json.hpp>
-
-#include <fstream>
-#include <iostream>
-
 #include "core/file_io.h"
-#include "format/gltf_helper.h"
+
+#include <iostream>
+#include <filesystem>
+#include <memory>
 
 namespace kiln::format {
-
 std::expected<mesh::MeshData, std::string> parse_gltf(std::string_view filepath) noexcept {
-    
-    std::ifstream file{std::string(filepath), std::ios::in | std::ios::binary};
-    if (not file.is_open()) return std::unexpected("エラー: ファイルを開けませんでした");
+    cgltf_options options = {};
+    cgltf_data*   data    = nullptr;
+    cgltf_result  result  = cgltf_parse_file(&options, filepath.data(), &data);
 
-    nlohmann::json gltf_json;
-    try {
-        gltf_json = nlohmann::json::parse(file);
-    } catch (const nlohmann::json::parse_error&) {
-        return std::unexpected("エラー: JSONの形式が不正です");
+    if (result != cgltf_result_success) {
+        return std::unexpected("エラー: glTFファイルの読み込みに失敗しました");
     }
 
-    constexpr uint32_t GLTF_FLOAT = 5126;
-    auto pos_meta_res = detail::extract_attribute_metadata(gltf_json, "POSITION", GLTF_FLOAT, "VEC3");
-    if (not pos_meta_res.has_value()) return std::unexpected(pos_meta_res.error());
+    std::unique_ptr<cgltf_data, decltype(&cgltf_free)> safe_data(data, cgltf_free);
 
-    const auto& pos_meta_opt = pos_meta_res.value();
-    if (not pos_meta_opt.has_value()) return std::unexpected("エラー: 必須である POSITION が存在しません");
-    const auto& pos_meta = pos_meta_opt.value();
-
-    auto norm_res = detail::extract_attribute_metadata(gltf_json, "NORMAL", GLTF_FLOAT, "VEC3");
-    if (not norm_res.has_value()) return std::unexpected(norm_res.error());
-
-    size_t norm_offset = 0;
-    size_t norm_count = 0;
-    const auto& norm_opt = norm_res.value();
-
-    if (norm_opt.has_value()) {
-        const auto& norm_meta = norm_opt.value();
-        norm_offset = norm_meta.byte_offset;
-        norm_count = norm_meta.byte_length / sizeof(float);
+    if (data->meshes_count == 0 || data->meshes[0].primitives_count == 0) {
+        return std::unexpected("エラー: 形状データが見つかりません");
     }
 
-    auto uv_res = detail::extract_attribute_metadata(gltf_json, "TEXCOORD_0", GLTF_FLOAT, "VEC2");
-    if (not uv_res.has_value()) return std::unexpected(uv_res.error());
+    const cgltf_primitive& primitive = data->meshes[0].primitives[0];
 
-    size_t uv_offset = 0;
-    size_t uv_count = 0;
-    const auto& uv_opt = uv_res.value();
+    mesh::MeshData mesh_data{};
+    std::string    bin_filename = "";
 
-    if (uv_opt.has_value()) {
-        const auto& uv_meta = uv_opt.value();
-        uv_offset = uv_meta.byte_offset;
-        uv_count = uv_meta.byte_length / sizeof(float);
+    if (primitive.indices != nullptr) {
+        const cgltf_accessor* acc = primitive.indices;
+        // accessorのズレ ＋ buffer_viewのズレ ＝ 実際のデータの開始位置
+        mesh_data.indices_byte_offset = acc->offset + acc->buffer_view->offset;
+        mesh_data.indices_count       = acc->count;
+
+        if (acc->component_type == cgltf_component_type_r_16u) {
+            mesh_data.indices_component_type = 5123;
+        } else if (acc->component_type == cgltf_component_type_r_32u) {
+            mesh_data.indices_component_type = 5125;
+        } else {
+            mesh_data.indices_component_type = 0;
+        }
     }
 
-    auto index_res = detail::extract_index_metadata(gltf_json);
-    if (not index_res.has_value()) return std::unexpected(index_res.error());
+        // 頂点や法線などの情報を抜き出す
+        for (size_t i = 0; i < primitive.attributes_count; ++i) {
+            const cgltf_attribute& attr            = primitive.attributes[i];
+            const cgltf_accessor*  acc             = attr.data;
+            const size_t           absolute_offset = acc->offset + acc->buffer_view->offset;
 
-    size_t index_offset = 0;
-    size_t index_count = 0;
-    uint32_t index_type = 0;
-    const auto& index_opt = index_res.value();
+            if (attr.type == cgltf_attribute_type_position) {
+                mesh_data.positions_byte_offset = absolute_offset;
+                mesh_data.positions_float_count = acc->count * 3;  // x,y,z なので3倍
+                bin_filename                    = acc->buffer_view->buffer->uri;
+            } else if (attr.type == cgltf_attribute_type_normal) {
+                mesh_data.normals_byte_offset = absolute_offset;
+                mesh_data.normals_float_count = acc->count * 3;
+            } else if (attr.type == cgltf_attribute_type_texcoord) {
+                mesh_data.uvs_byte_offset = absolute_offset;
+                mesh_data.uvs_float_count = acc->count * 2;
+            }
+        }
 
-    if (index_opt.has_value()) {
-        const auto& index_meta = index_opt.value();
-        index_offset = index_meta.byte_offset;
-        index_type = index_meta.component_type;
+        if (mesh_data.positions_float_count == 0) {
+            return std::unexpected("エラー: 必須である POSITION が存在しません");
+        }
 
-        size_t type_size = 2; // デフォルトは 5123 (uint16_t)
-        if (index_type == 5121) type_size = 1;
-        else if (index_type == 5125) type_size = 4;
+        std::filesystem::path gltf_dir = std::filesystem::path(filepath).parent_path();
+        std::filesystem::path bin_path = gltf_dir / bin_filename;
 
-        index_count = index_meta.byte_length / type_size;
+        auto binary_result = kiln::core::read_binary_file(bin_path.string());
+        if (not binary_result.has_value()) {
+            return std::unexpected(binary_result.error());
+        }
+        mesh_data.raw_buffer = std::move(binary_result.value());
+
+        std::cout << "[SUCCESS] glTFの読み込みとメモリ構造の構築に成功しました\n";
+        return mesh_data;
     }
-
-    std::filesystem::path gltf_dir = std::filesystem::path(filepath).parent_path();
-    std::filesystem::path bin_path = gltf_dir / pos_meta.uri;
-
-    auto binary_result = kiln::core::read_binary_file(bin_path.string());
-    if (not binary_result.has_value()) return std::unexpected(binary_result.error());
-
-    std::vector<std::byte> binary_data = std::move(binary_result.value());
-    if (binary_data.size() < pos_meta.byte_length) {
-        return std::unexpected("エラー: バイナリファイルのサイズが足りません");
-    }
-
-    kiln::mesh::MeshData mesh_data{
-        .raw_buffer = std::move(binary_data),
-        .positions_byte_offset = pos_meta.byte_offset,
-        .positions_float_count = pos_meta.byte_length / sizeof(float),
-        .normals_byte_offset = norm_offset,
-        .normals_float_count = norm_count,
-        .uvs_byte_offset = uv_offset,
-        .uvs_float_count = uv_count,
-        .indices_byte_offset = index_offset,
-        .indices_count = index_count,
-        .indices_component_type = index_type,
-    };
-
-    std::cout << "[SUCCESS] POSITIONの抽出に成功しました\n";
-    return mesh_data;
-}
 
 } // namespace kiln::format

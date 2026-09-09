@@ -3,9 +3,11 @@
 // SPDX-License-Identifier: BSD-2-Clause-Patent   //
 //------------------------------------------------//
 
+#include <fstream>
 #include <iostream>
 
 #include "format/gltf_parser.h"
+#include "mesh/mesh_processor.h"
 
 int main() {
     auto result = kiln::format::parse_gltf("/Users/sakakibarayuto/Kiln/tests/assets/Box.gltf");
@@ -53,5 +55,26 @@ int main() {
     }
 
     std::cout << "=================================\n";
+
+    std::cout << "\n=== バイナリ形式へのベイク処理開始 ===\n";
+    auto process_result = kiln::mesh::process_mesh(mesh_data);
+    if (not process_result.has_value()) {
+        std::cerr << "プロセス失敗: " << process_result.error() << "\n";
+        return 1;
+    }
+
+    auto pack_result = kiln::mesh::pack_to_binary(process_result.value());
+    if (not pack_result.has_value()) {
+        std::cerr << "パック失敗: " << pack_result.error() << "\n";
+        return 1;
+    }
+
+    const std::string out_path = "/Users/sakakibarayuto/Kiln/tests/assets/Box_baked.bin";
+    std::ofstream outfile(out_path, std::ios::binary);
+    outfile.write(reinterpret_cast<const char*>(pack_result.value().data()), static_cast<std::streamsize>(pack_result.value().size()));
+    outfile.close();
+
+    std::cout << "[SUCCESS] ベイク完了! \n保存先: " << out_path << "\nサイズ: " << pack_result.value().size() << " bytes\n";
+
     return 0;
 }

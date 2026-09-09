@@ -10,8 +10,6 @@ add_library(kiln_core STATIC
         format/gltf_parser.cpp
         ../include/core/file_io.h
         core/file_io.cpp
-        format/gltf_helper.cpp
-        ../include/format/gltf_helper.h
 )
 
 
